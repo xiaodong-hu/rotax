@@ -2,13 +2,18 @@ from infrastructure.stone import *
 from infrastructure.go_board import *
 
 if __name__ == "__main__":
-    # a = Color(1)
-    # print(a)
     
-    # a = Stone(Color(1),(1,2))
-    # c = Stone(Color(-1),(1,2))
-    # b = Stone(Color(0),(1,2))
-    # print(a,b,c)
+    a = Stone(Color.White, (1,2))
+    b = Stone(Color.White, (3,2))
+    c = Stone(Color.Black, (4,2))
+    d = Stone(Color.White, (2,2))
     
     A = GoBoard((19,19))
-    A.gen_move(Color.Black, (2,3))
+    
+    A.update_block_list(a)
+    A.update_block_list(b)
+    A.update_block_list(c)
+    A.update_block_list(d)
+    A.update_full_stone_to_color_map()
+    print(A)
+    print(A.block_list)
