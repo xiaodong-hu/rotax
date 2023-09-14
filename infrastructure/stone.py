@@ -10,8 +10,8 @@ class Color(Enum):
     def __str__(self):
         from colorama import Fore, Style
         return { 
-            Color.White: f"{Fore.GREEN} ●{Style.RESET_ALL}",
-            Color.Black: f"{Fore.BLUE} ●{Style.RESET_ALL}",
+            Color.White: f"{Fore.LIGHTBLUE_EX} ⬤{Style.RESET_ALL}",
+            Color.Black: f"{Fore.LIGHTRED_EX} ⬤{Style.RESET_ALL}",
         }[self] # a trick to return a local dict for dispath match
 
     def alternate_color(self) -> Self: # syntax sugar for optional type like rust
