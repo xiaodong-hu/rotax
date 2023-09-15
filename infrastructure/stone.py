@@ -14,7 +14,7 @@ class Color(Enum):
             Color.Black: f"{Fore.LIGHTRED_EX} ⬤{Style.RESET_ALL}",
         }[self] # a trick to return a local dict for dispath match
 
-    def alternate_color(self) -> Self: # syntax sugar for optional type like rust
+    def alternate(self) -> Self: # syntax sugar for optional type like rust
         """useful for generation of move under the alternating rule of colors"""
         match self:
             case Color.White: return Color.Black
