@@ -1,5 +1,6 @@
 from infrastructure.stone import *
 from infrastructure.go_board import *
+from infrastructure.gen_move import *
 
 def goboard_class_construction_test():
     a = Stone(Color.White, (1,2))
@@ -21,29 +22,36 @@ def goboard_class_construction_test():
     print(A.block_nearest_neighbor_list)
     print(A.block_liberty_list)
 
-def gen_move_test():
+def place_stone_test():
     A = GoBoard((19,19))
     
     # alternative move
-    A.gen_move_at((3,2))
-    A.gen_move_at((16,16))
-    A.gen_move_at((3,16))
-    A.gen_move_at((2,2))
-    A.gen_move_at((15,3))
+    A.place_stone_at((3,2))
+    A.place_stone_at((16,16))
+    A.place_stone_at((3,16))
+    A.place_stone_at((2,2))
+    A.place_stone_at((15,3))
     A.pass_move() # pass to switch color
 
     # force move
-    A.gen_move_with_color_at((2,3), Color.Black)
-    A.gen_move_with_color_at((3,3), Color.Black)
-    A.gen_move_with_color_at((2,1), Color.Black)
+    A.place_stone_with_color_at((2,3), Color.Black)
+    A.place_stone_with_color_at((3,3), Color.Black)
+    A.place_stone_with_color_at((2,1), Color.Black)
     print(A.block_list, A.block_liberty_list)
 
     # single-stone capture occurs
-    A.gen_move_with_color_at((1,2), Color.Black)
+    A.place_stone_with_color_at((1,2), Color.Black)
     print(A.block_list, A.block_liberty_list)
     
 
 
 if __name__ == "__main__":
-    gen_move_test()
+    # goboard_class_construction_test()
+    # place_stone_test()
+
+    A = GoBoard((19,19))
+    print(A)
+    gen_move_random(A)
+    
+
 

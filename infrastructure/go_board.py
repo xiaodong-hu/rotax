@@ -1,9 +1,6 @@
-from functools import total_ordering
 from .stone import *
-
-from random import randint, seed
 import numpy as np
-
+from copy import copy, deepcopy
 
 class StoneBlock:
     """ ```
@@ -51,15 +48,15 @@ class GoBoard:
 
     Note: we set black first by default, initialize the board with `black_first=False` to switch this
     ```"""
-    size: tuple[int, int] = (19,19)
+    size: tuple[int, int]
     last_move_color: Color # alternating color for each move
     block_list: list[StoneBlock]
-    full_stone_to_color_map: dict[tuple[int, int], Color] = {}
+    full_stone_to_color_map: dict[tuple[int, int], Color]
     block_nearest_neighbor_list: list[list[tuple[int, int]]]
     block_liberty_list: list[int]
 
     
-    def __init__(self, size: tuple[int, int], black_first: bool = True) -> None:
+    def __init__(self, size: tuple[int, int] = (19,19), black_first: bool = True) -> None:
         self.size = size
         self.last_move_color = Color.White if black_first else Color.Black
         self.block_list: list[StoneBlock] = []
@@ -69,8 +66,9 @@ class GoBoard:
         
         
     def __repr__(self) -> str:
-        board_str = "\n"
+        board_str = ""
         board_str += f"\033[1mBoard Size: {self.size}\033[0m"
+        board_str += f"\tCurrent turn: \033[1m{self.last_move_color.alternate()}\033[0m"
         for i in range(self.size[0],-1,-1):
             for j in range(0,self.size[1]+1):
                 pos = (j,i)
@@ -85,7 +83,7 @@ class GoBoard:
                     board_str += f"{i-1:2d}"
 
         board_str += "   "
-        for x in range(0,19):
+        for x in range(0,self.size[1]):
             board_str += f"{x:2d} "
         board_str += "\n"
 
@@ -224,66 +222,90 @@ class GoBoard:
         self.last_move_color = self.last_move_color.alternate()
 
 
-    def gen_move_at(self, pos: tuple[int,int]) -> bool:
-        assert pos not in self.full_stone_to_color_map
+    def place_stone_at(self, pos: tuple[int,int], show_board: bool=True) -> bool:
+        if pos in self.full_stone_to_color_map:
+            return False # already occupied
 
         stone_color = self.last_move_color.alternate()
         self.last_move_color = stone_color
         stone = Stone(stone_color, pos)
-
-        from copy import copy, deepcopy
-        test_goboard = deepcopy(self)
-
-        # First, thoroughly update the test GoBoard class whatever the liberty conditions are
-        test_goboard.update_block_list(stone)
-        test_goboard.update_full_stone_to_color_map()
-        test_goboard.update_block_nearest_neighbor_list_and_liberty_list()
-
-        # Second, remove the block of the alternating color if the liberty is zero (self-suicide is illegal)
-        block_ind_list_to_be_captured: list[int] = []
-        block_ind_list_to_be_suicide: list[int] = [] # self-suicide is expected to happens for at most one block list (remember that we always assume the previous state is well defined so that the liberty of each block is larger than zero)
-        for (i, liberty) in enumerate(test_goboard.block_liberty_list):
+        
+        # Check if any blocks have 0 liberties after the trial move
+        test_board = deepcopy(self)
+        test_board.update_block_list(stone)
+        test_board.update_full_stone_to_color_map()
+        test_board.update_block_nearest_neighbor_list_and_liberty_list()
+        zero_liberty_blocks: list[StoneBlock] = []
+        zero_liberty_blocks_of_current_color: list[StoneBlock] = []
+        for (block_ind, liberty) in enumerate(test_board.block_liberty_list):
             if liberty == 0:
-                if test_goboard.block_list[i].block_color != stone_color: # this occurs only if any other blocks of alternating color are captured
-                    block_ind_list_to_be_captured.append(i)
-                if test_goboard.block_list[i].block_color == stone_color:
-                    block_ind_list_to_be_suicide.append(i)
-
-        _is_move_legal: bool = False
-        if len(block_ind_list_to_be_captured) > 0: # capture occurs
-            for block_ind in block_ind_list_to_be_captured:
-                test_goboard.block_list.pop(block_ind) # remove dead blocks
-
-                test_goboard.update_full_stone_to_color_map()
-                test_goboard.update_block_nearest_neighbor_list_and_liberty_list()
-
-            self.block_list = test_goboard.block_list
-            self.full_stone_to_color_map = test_goboard.full_stone_to_color_map
-            self.block_nearest_neighbor_list = test_goboard.block_nearest_neighbor_list
-            self.block_liberty_list = test_goboard.block_liberty_list
-            _is_move_legal = True # move is legal (even if `len(block_ind_list_to_be_suicide) > 0`)
-
-        if len(block_ind_list_to_be_captured) == 0: # no capture
-            if len(block_ind_list_to_be_suicide) > 0: # pure self-suicide occurs, which is forbidden by us
-                # keep self unchanged
-                _is_move_legal = False # move is illegal
-            else:
-                self.block_list = test_goboard.block_list
-                self.full_stone_to_color_map = test_goboard.full_stone_to_color_map
-                self.block_nearest_neighbor_list = test_goboard.block_nearest_neighbor_list
-                self.block_liberty_list = test_goboard.block_liberty_list
-                _is_move_legal = True # no capture or suicide occurs, so is always legal
-
-        print(self)
-        return _is_move_legal
+                current_block = test_board.block_list[block_ind]
+                if current_block.block_color != self.last_move_color:
+                    zero_liberty_blocks.append(current_block)
+                else: # current_block.block_color == self.last_move_color:
+                    zero_liberty_blocks.append(current_block)
+                    zero_liberty_blocks_of_current_color.append(current_block)
 
 
-    def gen_move_with_color_at(self, pos: tuple[int,int], color: Color) -> bool:
+        _is_move_legal = False
+        _is_simple_capture = False
+        _is_suicide_capture = False
+        assert set(zero_liberty_blocks_of_current_color).issubset(set(zero_liberty_blocks))
+        if len(zero_liberty_blocks) == len(zero_liberty_blocks_of_current_color) == 0: 
+            # normal move
+            _is_move_legal = True
+            _is_simple_capture = False
+            _is_suicide_capture = False
+        elif len(zero_liberty_blocks) != 0 and len(zero_liberty_blocks_of_current_color) == 0: 
+            # simple capture
+            _is_move_legal = True
+            _is_simple_capture = True
+            _is_suicide_capture = False
+        else: # len(zero_liberty_blocks) != 0 and len(zero_liberty_blocks_of_current_color) != 0:
+            if len(zero_liberty_blocks) == len(zero_liberty_blocks_of_current_color):
+                # pure suicide, namely is a forbidden point
+                _is_move_legal = False
+                _is_simple_capture = False
+                _is_suicide_capture = False
+            else: # len(zero_liberty_blocks) > len(zero_liberty_blocks_of_current_color):
+                # suicide capture
+                _is_move_legal = True
+                _is_simple_capture = False
+                _is_suicide_capture = True
+
+        match (_is_move_legal, _is_simple_capture, _is_suicide_capture):
+            case (True, False, False):
+                pass
+            case (True, True, False):
+                for block in zero_liberty_blocks:
+                    test_board.block_list.remove(block)
+                    test_board.update_full_stone_to_color_map()
+                    test_board.update_block_nearest_neighbor_list_and_liberty_list()
+            case (True, False, True):
+                blocks_to_remove = list(set(zero_liberty_blocks).difference(set(zero_liberty_blocks_of_current_color)))
+                for block in blocks_to_remove:
+                    test_board.block_list.remove(block)
+                    test_board.update_full_stone_to_color_map()
+                    test_board.update_block_nearest_neighbor_list_and_liberty_list()
+            case _:
+                self.last_move_color = self.last_move_color.alternate()
+                return False
+
+        # if move is legal
+        self.block_list = test_board.block_list
+        self.full_stone_to_color_map = test_board.full_stone_to_color_map
+        self.block_nearest_neighbor_list = test_board.block_nearest_neighbor_list
+        self.block_liberty_list = test_board.block_liberty_list
+        if show_board:
+            print(self) 
+
+        return True
+
+    def place_stone_with_color_at(self, pos: tuple[int,int], color: Color) -> bool:
         "ignore the alternating-color rule and place stone with specific color on board"
         self.last_move_color = color.alternate() # change last move color to ensure the current move to have a correct color
-        _is_move_legal = self.gen_move_at(pos)
+        _is_move_legal = self.place_stone_at(pos)
         return _is_move_legal
-
 
 
 
