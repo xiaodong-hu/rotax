@@ -15,12 +15,13 @@ def goboard_class_construction_test():
     A.update_block_list(c)
     A.update_block_list(d)
     A.update_full_stone_to_color_map()
-    A.update_block_nearest_neighbor_list_and_liberty_list()
+    A.update_nearest_neighbor_list_and_liberty_list()
     print(A)
     print(A.block_list)
     print(A.full_stone_to_color_map)
     print(A.block_nearest_neighbor_list)
     print(A.block_liberty_list)
+    print(A.block_eye_list)
 
 def place_stone_test():
     A = GoBoard((19,19))

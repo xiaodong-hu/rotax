@@ -43,8 +43,8 @@ class GoBoard:
     - `last_move_color` stores the color of the last move. It will be used for generataion of the next move with the alternating rule
     - `block_list` serves as the most fundamental structure describing the current state on board
     - `full_stone_to_color_map` stores the splashed information of stones' positions and colors as a dict
-    - `block_nearest_neighbor_list` stores all nearest nearby empty sites for each block. This is helpful for counting the liberty and fight
     - `block_liberty_list` stores the liberties for each bloch. This is necessary to determine the legitimacy of each generation of move, as well as taking dead stones from the board
+    - 
 
     Note: we set black first by default, initialize the board with `black_first=False` to switch this
     ```"""
@@ -54,6 +54,7 @@ class GoBoard:
     full_stone_to_color_map: dict[tuple[int, int], Color]
     block_nearest_neighbor_list: list[list[tuple[int, int]]]
     block_liberty_list: list[int]
+    block_eye_list: list[int]
 
     
     def __init__(self, size: tuple[int, int] = (19,19), black_first: bool = True) -> None:
@@ -63,6 +64,7 @@ class GoBoard:
         self.full_stone_to_color_map: dict[tuple[int, int], Color] = {}
         self.block_nearest_neighbor_list: list[list[tuple[int, int]]] = []
         self.block_liberty_list: list[int] = []
+        self.block_eye_list: list[int] = []
         
         
     def __repr__(self) -> str:
@@ -142,79 +144,58 @@ class GoBoard:
         """for rectangular board only"""
         (N1, N2) = self.size
         (N1, N2) = (N1-1, N2-1)
+        # (i, j) = pos
         assert 0 <= pos[0] <= N1 and 0 <= pos[1] <= N2
-        if pos == (0, 0):
-            return BoardPosition.BottomLeftCorner
-        elif pos == (N1, 0):
-            return BoardPosition.BottomRightCorner
-        elif pos == (0, N2):
-            return BoardPosition.TopLeftCorner
-        elif pos == (N1, N2): 
-            return BoardPosition.TopRightCorner
-        elif pos[0] == 0:
-            return BoardPosition.Left
-        elif pos[0] == N1:
-            return BoardPosition.Right
-        elif pos[1] == 0:
-            return BoardPosition.Bottom
-        elif pos[1] == N2:
-            return BoardPosition.Top
-        else:
-            return BoardPosition.Bulk
+        match pos:
+            case (0, 0): return BoardPosition.BottomLeftCorner
+            case (i, 0) if i == N1: return BoardPosition.BottomRightCorner
+            case (0, j) if j == N2: return BoardPosition.TopLeftCorner
+            case (i, j) if i == N1 and j == N2: return BoardPosition.TopRightCorner
+            case (0, j) if j > 0: return BoardPosition.Left
+            case (i, j) if i == N1 and j > 0: return BoardPosition.Right
+            case (i, 0) if i > 0: return BoardPosition.Bottom
+            case (i, j) if i > 0 and j == N2: return BoardPosition.Top
+            case _: return BoardPosition.Bulk
 
 
-    def update_block_nearest_neighbor_list_and_liberty_list(self) -> None:
+    def get_nearest_neighbor_sites(self, pos: tuple[int, int]) -> list[tuple[int,int]]:
+        (x,y) = pos
+        match self.get_board_position(pos):
+            case BoardPosition.Bulk: return [(x+1,y), (x-1,y), (x,y+1), (x,y-1)]
+            case BoardPosition.Left: return [(x+1,y), (x,y+1), (x,y-1)]
+            case BoardPosition.Right: return [(x-1,y), (x,y+1), (x,y-1)]
+            case BoardPosition.Bottom: return [(x+1,y), (x-1,y), (x,y+1)]
+            case BoardPosition.Top: return [(x+1,y), (x-1,y), (x,y-1)]
+            case BoardPosition.BottomLeftCorner: return [(x+1,y), (x,y+1)]
+            case BoardPosition.BottomRightCorner: return [(x-1,y), (x,y+1)]
+            case BoardPosition.TopLeftCorner: return [(x+1,y), (x,y-1)]
+            case BoardPosition.TopRightCorner: return [(x-1,y), (x,y-1)]
+
+
+
+    def update_nearest_neighbor_list_and_liberty_list(self) -> None:
         """```
-        ### Find All Nearest Nearby Empty Sites for Each Block.
+        ### Use Auxiliary `block_nearest_neighbor_list` to Count Block Liberties
         > The boundary condition is taken into account
         ```"""
-        self.block_nearest_neighbor_list: list[list[tuple[int,int]]] = [] # reinitlize the list
+        self.block_nearest_neighbor_list: list[list[tuple[int,int]]] = [] # reinitlize the auxiliary list
         self.block_liberty_list: list[int] = [] # reinitialize the liberty list
-        for (i, stone_block) in enumerate(self.block_list):
-            nearest_nearby_sites_for_current_block: list[tuple[int, int]] = []
+        for stone_block in self.block_list:
+            nearest_neighbor_sites_for_current_block: list[tuple[int, int]] = []
             for stone in stone_block.stone_list:
-                nearest_nearby_sites_for_current_stone: list[tuple[int,int]] = []
-                match self.get_board_position(stone.pos):
-                    case BoardPosition.Bulk:
-                        (x,y) = stone.pos
-                        nearest_nearby_sites_for_current_stone = [(x+1,y), (x-1,y), (x,y+1), (x,y-1)]
-                    case BoardPosition.Left:
-                        (x,y) = stone.pos
-                        nearest_nearby_sites_for_current_stone = [(x+1,y), (x,y+1), (x,y-1)]
-                    case BoardPosition.Right:
-                        (x,y) = stone.pos
-                        nearest_nearby_sites_for_current_stone = [(x-1,y), (x,y+1), (x,y-1)]
-                    case BoardPosition.Bottom:
-                        (x,y) = stone.pos
-                        nearest_nearby_sites_for_current_stone = [(x+1,y), (x-1,y), (x,y+1)]
-                    case BoardPosition.Top:
-                        (x,y) = stone.pos
-                        nearest_nearby_sites_for_current_stone = [(x+1,y), (x-1,y), (x,y-1)]
-                    case BoardPosition.BottomLeftCorner:
-                        (x,y) = stone.pos
-                        nearest_nearby_sites_for_current_stone = [(x+1,y), (x,y+1)]
-                    case BoardPosition.BottomRightCorner:
-                        (x,y) = stone.pos
-                        nearest_nearby_sites_for_current_stone = [(x-1,y), (x,y+1)]
-                    case BoardPosition.TopLeftCorner:
-                        (x,y) = stone.pos
-                        nearest_nearby_sites_for_current_stone = [(x+1,y), (x,y-1)]
-                    case BoardPosition.TopRightCorner:
-                        (x,y) = stone.pos
-                        nearest_nearby_sites_for_current_stone = [(x-1,y), (x,y-1)]
-                
-                nearest_nearby_sites_for_current_block.extend(nearest_nearby_sites_for_current_stone)
+                nearest_neighbor_sites = self.get_nearest_neighbor_sites(stone.pos) 
+                nearest_neighbor_sites_for_current_block.extend(nearest_neighbor_sites)
 
-            # Remove the potential repeated nearest nearby sites
-            nearest_nearby_sites_for_current_block = list(set(nearest_nearby_sites_for_current_block))
+            # Remove the repeated counting sites
+            nearest_neighbor_sites_for_current_block = list(set(nearest_neighbor_sites_for_current_block))
 
-            # Check if the site within `nearest_nearby_sites_for_current_stone` is already occupied by other stones
-            for pos in self.full_stone_to_color_map.keys():
-                if pos in nearest_nearby_sites_for_current_block:
-                    nearest_nearby_sites_for_current_block.remove(pos)
+            # Check if the site within `nearest_neighbor_sites_for_current_stone` is already occupied by other stones
+            for pos in self.full_stone_to_color_map:
+                if pos in nearest_neighbor_sites_for_current_block:
+                    nearest_neighbor_sites_for_current_block.remove(pos)
     
-            self.block_nearest_neighbor_list.append(nearest_nearby_sites_for_current_block)
-            self.block_liberty_list.append(len(nearest_nearby_sites_for_current_block))
+            self.block_nearest_neighbor_list.append(nearest_neighbor_sites_for_current_block)
+            self.block_liberty_list.append(len(nearest_neighbor_sites_for_current_block))
 
 
     def pass_move(self) -> None:
@@ -234,7 +215,10 @@ class GoBoard:
         test_board = deepcopy(self)
         test_board.update_block_list(stone)
         test_board.update_full_stone_to_color_map()
-        test_board.update_block_nearest_neighbor_list_and_liberty_list()
+        test_board.update_nearest_neighbor_list_and_liberty_list()
+        test_board.update_block_eye_list()
+
+
         zero_liberty_blocks: list[StoneBlock] = []
         zero_liberty_blocks_of_current_color: list[StoneBlock] = []
         for (block_ind, liberty) in enumerate(test_board.block_liberty_list):
@@ -280,13 +264,15 @@ class GoBoard:
                 for block in zero_liberty_blocks:
                     test_board.block_list.remove(block)
                     test_board.update_full_stone_to_color_map()
-                    test_board.update_block_nearest_neighbor_list_and_liberty_list()
+                    test_board.update_nearest_neighbor_list_and_liberty_list()
+                    test_board.update_block_eye_list()
             case (True, False, True):
                 blocks_to_remove = list(set(zero_liberty_blocks).difference(set(zero_liberty_blocks_of_current_color)))
                 for block in blocks_to_remove:
                     test_board.block_list.remove(block)
                     test_board.update_full_stone_to_color_map()
-                    test_board.update_block_nearest_neighbor_list_and_liberty_list()
+                    test_board.update_nearest_neighbor_list_and_liberty_list()
+                    test_board.update_block_eye_list()
             case _:
                 self.last_move_color = self.last_move_color.alternate()
                 return False
@@ -297,9 +283,11 @@ class GoBoard:
         self.block_nearest_neighbor_list = test_board.block_nearest_neighbor_list
         self.block_liberty_list = test_board.block_liberty_list
         if show_board:
+            print(f"Place stone{stone_color} at coordinate = {pos}:")
             print(self) 
 
         return True
+
 
     def place_stone_with_color_at(self, pos: tuple[int,int], color: Color) -> bool:
         "ignore the alternating-color rule and place stone with specific color on board"
@@ -308,8 +296,45 @@ class GoBoard:
         return _is_move_legal
 
 
+    def get_next_nearest_neighbor_sites(self, pos: tuple[int, int]) -> list[tuple[int,int]]:
+        "useful to determine if the site is the true eye"
+        (x,y) = pos
+        match self.get_board_position(pos):
+            case BoardPosition.Bulk: return [(x+1,y+1), (x-1,y+1), (x-1,y-1), (x+1,y+1)]
+            case BoardPosition.Left: return [(x+1,y+1), (x+1,y-1)]
+            case BoardPosition.Right: return [(x-1,y+1), (x-1,y-1)]
+            case BoardPosition.Bottom: return [(x+1,y+1), (x-1,y+1)]
+            case BoardPosition.Top: return [(x+1,y-1), (x-1,y-1)]
+            case BoardPosition.BottomLeftCorner: return [(x+1,y+1)]
+            case BoardPosition.BottomRightCorner: return [(x-1,y+1)]
+            case BoardPosition.TopLeftCorner: return [(x+1,y-1)]
+            case BoardPosition.TopRightCorner: return [(x-1,y-1)]
 
 
+    def update_block_eye_list(self) -> None:
+        block_eye_list = [0 for _ in self.block_list]
+        for (block_ind, block_nearest_neighbor_sites) in enumerate(self.block_nearest_neighbor_list):
+            block_color = self.block_list[block_ind].block_color
+            for site in block_nearest_neighbor_sites:
+                counter = 0
+                nearest_neighbor_sites = self.get_nearest_neighbor_sites(site)
+                next_nearest_neighbor_sites = self.get_next_nearest_neighbor_sites(site)
+                nearby_sites = list(set(nearest_neighbor_sites).union(set(next_nearest_neighbor_sites)))
+                for test_site in nearby_sites:
+                    if test_site in self.full_stone_to_color_map:
+                        if self.full_stone_to_color_map[test_site] == block_color:
+                            counter += 1
+                
+                # true_eye_criteria = 
+                # match self.get_board_position(site):
+                #     case BoardPosition.Bulk: 
+
+    def _is_eye(self, pos: tuple[int,int]) -> bool:
+        match self.get_board_position(pos):
+            case 1: return True
+            case _: return True
+
+        
 
 
 def get_distance(pos1: tuple[int,int], pos2: tuple[int,int]) -> np.floating:
@@ -320,115 +345,3 @@ def get_distance(pos1: tuple[int,int], pos2: tuple[int,int]) -> np.floating:
 
 
             
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
-
-    # def update_liberty_list(self) -> None:
-    #     # reinitlize the `liberty_list`
-    #     self.block_liberty_list: list[int] = []
-    #     for (i, stone_block) in enumerate(self.block_list):
-    #         current_liberty = 0
-    #         for pos in stone_block.stone_list:
-    #             nearest_nearby_sites: list[tuple[int,int]] = []
-    #             match self.get_position(pos):
-    #                 case BoardPosition.Bulk:
-    #                     (x,y) = pos
-    #                     nearest_nearby_sites = [(x+1,y), (x-1,y), (x,y+1), (x,y-1)]  
-    #                 case BoardPosition.Left:
-    #                     (x,y) = pos
-    #                     nearest_nearby_sites = [(x+1,y), (x,y+1), (x,y-1)]
-    #                 case BoardPosition.Right:
-    #                     (x,y) = pos
-    #                     nearest_nearby_sites = [(x-1,y), (x,y+1), (x,y-1)]
-    #                 case BoardPosition.Bottom:
-    #                     (x,y) = pos
-    #                     nearest_nearby_sites = [(x+1,y), (x-1,y), (x,y+1)]
-    #                 case BoardPosition.Top:
-    #                     (x,y) = pos
-    #                     nearest_nearby_sites = [(x+1,y), (x-1,y), (x,y-1)]
-    #                 case BoardPosition.BottomLeftCorner:
-    #                     (x,y) = pos
-    #                     nearest_nearby_sites = [(x+1,y), (x,y+1)]
-    #                 case BoardPosition.BottomRightCorner:
-    #                     (x,y) = pos
-    #                     nearest_nearby_sites = [(x-1,y), (x,y+1)]
-    #                 case BoardPosition.TopLeftCorner:
-    #                     (x,y) = pos
-    #                     nearest_nearby_sites = [(x+1,y), (x,y-1)]
-    #                 case BoardPosition.TopRightCorner:
-    #                     (x,y) = pos
-    #                     nearest_nearby_sites = [(x-1,y), (x,y-1)]
-                              
-    #             for site in nearest_nearby_sites:
-    #                 if site not in self.full_stone_to_color_map: # if unoccupied
-    #                     current_liberty += 1
-    #                 # if site in self.full_stone_to_color_map and self.last_move_color.alternate() == 
-    #         self.block_liberty_list.append(current_liberty)
-
- 
-    
-    # def merge_single_stone_to_block(self, block_id: int, new_stone: StoneBlock) -> None:
-    #     assert len(new_stone.stone_list) == 1
-    #     self.block_list[i].append(new_stone)
-        
-        
-    # def gen_move_at(self, pos: tuple[int,int])-> None:
-    #     (N1, N2) = self.size
-    #     assert 0 <= pos[0] <= N1-1 and 0 <= pos[1] <= N2-1
-        
-    #     # todo! add basic logic here to check if the move is legal or not
-    #     current_move_color = self.last_move_color.alternate()
-    #     if len(self.block_list) == 0:
-    #         new_singlet_block = StoneBlock(current_move_color, [pos])
-    #         self.block_list.append(new_singlet_block)
-    #     else:
-    #         for (i, nearest_nearby_sites) in enumerate(self.block_nearest_neighbor_list):
-    #             if pos in nearest_nearby_sites and current_move_color == self.block_list[i].block_color:
-    #                 self.block_list[i].stone_list.append(pos)
-    #             else:
-    #                 new_singlet_block = StoneBlock(current_move_color, [pos])
-    #                 self.block_list.append(new_singlet_block)
-                
-    #     # update all information with the new `block_nearest_neighbor_list`
-    #     self.update_full_stone_to_color_map()
-    #     self.update_nearest_neighbor_list()
-    #     self.update_liberty_list()
-        
-    #     print(self.block_list)
-    #     print(self.full_stone_to_color_map)
-    #     print(self.block_nearest_neighbor_list)
-    #     print(self.block_liberty_list)
-    #     print(self)
-    #     print(f"gen move at {pos}\n")
-
-        
-# class BoardAnalysis:
-#     block_list: list[list[list[int]]]
-#     block_liberty_list: list[int]

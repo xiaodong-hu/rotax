@@ -25,6 +25,7 @@ class Stone:
     color: Color
     pos: tuple[int,int]
     
+    
     def __init__(self, color: Color, pos: tuple[int, int]) -> None:
         self.color = color
         self.pos = pos
