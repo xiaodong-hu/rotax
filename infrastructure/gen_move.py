@@ -1,57 +1,60 @@
 from .stone import *
 from .go_board import *
+from .game_state import *
+
 import random
 from copy import copy, deepcopy
 from functools import reduce
-from operator import mul
-
-
+from operator import mul  
 
 
 def gen_move_random(board: GoBoard) -> None:
-    (L1, L2) = board.size
-    full_site_list = [(i,j) for i in range(0,L1) for j in range(0,L2)]
-    
-    consecutive_passes = 0
-    count = 0
+    # Create initial game state with the starting board
+    game_tree = GameTree([deepcopy(board.full_stone_to_color_map)])
 
-    
-    count_truncation = reduce(mul, board.size)
-    while consecutive_passes < 2:
-        occupied_site_list = board.full_stone_to_color_map.keys()
-        empty_site_list = list(set(full_site_list).difference(set(occupied_site_list)))
-        empty_site_list_to_be_scanned = deepcopy(empty_site_list)
-        
-        if len(empty_site_list_to_be_scanned) == 0:
-            # No legal moves left, increase the pass count
+    step = 0
+    # step_truncation = reduce(mul, board.size)
+    full_site_list = [(i,j) for i in range(0,board.size[0]) for j in range(0,board.size[1])]
+
+    loop = 0
+    consecutive_passes = 0 # serve as the indicator for the end of the game
+    while consecutive_passes < 2 and loop < 5000:
+        loop += 1
+        test_board = deepcopy(board)
+        allowed_site_list_for_current_move = test_board.generate_allowed_site_list(full_site_list)
+        print(f"\n\nallowed sites for{test_board.current_move_color} : {len(allowed_site_list_for_current_move)}")
+        if len(allowed_site_list_for_current_move) == 0:
+            board.pass_move()
+            game_tree.update_game_tree(board)
+            
             consecutive_passes += 1
+            step += 1
         else:
-            consecutive_passes = 0  # Reset consecutive pass count if there are legal moves
-
-        while len(empty_site_list_to_be_scanned) > 0:
-            board_test  = deepcopy(board)
-            test_pos = random.choice(empty_site_list_to_be_scanned)
-            _is_move_legal = board_test.place_stone_at(test_pos, show_board=False)
-            if _is_move_legal:
-                print(f"gen move at {test_pos}")
-                board.place_stone_at(test_pos, show_board=True)
-                count += 1
-                break
+            test_pos = random.choice(allowed_site_list_for_current_move)
+            ko_test_board = deepcopy(board)
+            ko_test_board.try_place_stone_at(test_pos, show_board=False)
+            if game_tree._is_board_repeated(ko_test_board):
+                # strictly refuse such move!
+                continue
             else:
-                empty_site_list_to_be_scanned.remove(test_pos)
-        
+                board.try_place_stone_at(test_pos, show_board=True)
+                consecutive_passes = 0
+                step += 1
+
         if consecutive_passes == 2:
-            if count < count_truncation:
-                # Both players passed consecutively, game ends
-                print(f"Game ends at i = {count}.")
-                break
-            else:
-                print(f"Game ends reaching due to the nstep limit.")
-                break
+            print(f"\n\033[1mConsecutive Passes Detected!\033[0m")
+            # Both players passed consecutively, game ends
+            print(f"\t\033[1mGame Ends at step = {step}.\033[0m\n")
+            break
 
-    # You would add here the logic to calculate the final score based on both stone count and controlled territory.
-    # ...
-
+    board_score = board.score_board()
+    print(f"\033[1mBoard Score: {board_score}\033[0m")
+    ((_, black_score), (_, white_score)) = board_score
+    score_diff = black_score - board.komi - white_score
+    if score_diff > 0:
+        print(f"\033[1mBlack Win by {score_diff}\033[0m")
+    else:
+        print(f"\033[1mWhite Win by {-score_diff}\033[0m")
 
 
 def _is_game_end(old_board: GoBoard, new_board: GoBoard) -> bool:

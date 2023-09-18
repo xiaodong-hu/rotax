@@ -1,3 +1,4 @@
+import enum
 from .stone import *
 import numpy as np
 from copy import copy, deepcopy
@@ -18,9 +19,7 @@ class StoneBlock:
         
     def __repr__(self) -> str:
         block_str = f"{self.block_color} "
-        for stone in self.stone_list:
-            block_str += f"{stone}"
-        
+        block_str += f"{self.stone_list[0]}..."        
         return block_str
 
 
@@ -40,7 +39,7 @@ class GoBoard:
     """```
     ### Go Board Class
     - `size` tells the board shape
-    - `last_move_color` stores the color of the last move. It will be used for generataion of the next move with the alternating rule
+    - `current_move_color` stores the color of stone to be place. It will be used for generataion of the next move with the alternating rule
     - `block_list` serves as the most fundamental structure describing the current state on board
     - `full_stone_to_color_map` stores the splashed information of stones' positions and colors as a dict
     - `block_liberty_list` stores the liberties for each bloch. This is necessary to determine the legitimacy of each generation of move, as well as taking dead stones from the board
@@ -49,7 +48,8 @@ class GoBoard:
     Note: we set black first by default, initialize the board with `black_first=False` to switch this
     ```"""
     size: tuple[int, int]
-    last_move_color: Color # alternating color for each move
+    komi: float
+    current_move_color: Color # alternating color for each move
     block_list: list[StoneBlock]
     full_stone_to_color_map: dict[tuple[int, int], Color]
     block_nearest_neighbor_list: list[list[tuple[int, int]]]
@@ -59,18 +59,16 @@ class GoBoard:
     
     def __init__(self, size: tuple[int, int] = (19,19), black_first: bool = True) -> None:
         self.size = size
-        self.last_move_color = Color.White if black_first else Color.Black
+        self.komi = 7.5
+        self.current_move_color = Color.Black if black_first else Color.White
         self.block_list: list[StoneBlock] = []
         self.full_stone_to_color_map: dict[tuple[int, int], Color] = {}
         self.block_nearest_neighbor_list: list[list[tuple[int, int]]] = []
         self.block_liberty_list: list[int] = []
         self.block_eye_list: list[int] = []
         
-        
     def __repr__(self) -> str:
         board_str = ""
-        board_str += f"\033[1mBoard Size: {self.size}\033[0m"
-        board_str += f"\tCurrent turn: \033[1m{self.last_move_color.alternate()}\033[0m"
         for i in range(self.size[0],-1,-1):
             for j in range(0,self.size[1]+1):
                 pos = (j,i)
@@ -104,7 +102,7 @@ class GoBoard:
         for (i, stone_block) in enumerate(self.block_list):
             if stone_block.block_color == new_stone.color:
                 for stone in stone_block.stone_list:
-                    if abs(get_distance(stone.pos, new_stone.pos) - 1.0) < 1.0E-8:
+                    if abs(get_distance_of_two_sites(stone.pos, new_stone.pos) - 1.0) < 1.0E-8:
                         matching_block_indices.append(i)
                         break  # We only need to check once for each block
 
@@ -158,7 +156,7 @@ class GoBoard:
             case _: return BoardPosition.Bulk
 
 
-    def get_nearest_neighbor_sites(self, pos: tuple[int, int]) -> list[tuple[int,int]]:
+    def get_nearest_nearby_sites_for_position(self, pos: tuple[int, int]) -> list[tuple[int,int]]:
         (x,y) = pos
         match self.get_board_position(pos):
             case BoardPosition.Bulk: return [(x+1,y), (x-1,y), (x,y+1), (x,y-1)]
@@ -172,18 +170,36 @@ class GoBoard:
             case BoardPosition.TopRightCorner: return [(x-1,y), (x,y-1)]
 
 
+    def _is_eye(self, pos: tuple[int,int]) -> bool:
+        "here eye can be fake: a site is defined as eye if the left/right/up/down are of the same color"
+        nearest_neighbor_sites = self.get_nearest_nearby_sites_for_position(pos)
+        nearest_neighbor_sites_color_list: list[Color] = []
+        for pos in nearest_neighbor_sites:
+            res_color = self.full_stone_to_color_map.get(pos)
+            if res_color is None:
+                return False
+            else: 
+                nearest_neighbor_sites_color_list.append(res_color)
 
-    def update_nearest_neighbor_list_and_liberty_list(self) -> None:
+        if len(set(nearest_neighbor_sites_color_list)) == 1:
+            # if all nearest nearby sites are of the same color
+            return True
+        else:
+            return False
+
+
+    def update_nearest_neighbor_list_and_liberty_list_and_eye_list(self) -> None:
         """```
         ### Use Auxiliary `block_nearest_neighbor_list` to Count Block Liberties
         > The boundary condition is taken into account
         ```"""
         self.block_nearest_neighbor_list: list[list[tuple[int,int]]] = [] # reinitlize the auxiliary list
         self.block_liberty_list: list[int] = [] # reinitialize the liberty list
+        self.block_eye_list: list[int] = []
         for stone_block in self.block_list:
             nearest_neighbor_sites_for_current_block: list[tuple[int, int]] = []
             for stone in stone_block.stone_list:
-                nearest_neighbor_sites = self.get_nearest_neighbor_sites(stone.pos) 
+                nearest_neighbor_sites = self.get_nearest_nearby_sites_for_position(stone.pos) 
                 nearest_neighbor_sites_for_current_block.extend(nearest_neighbor_sites)
 
             # Remove the repeated counting sites
@@ -197,151 +213,201 @@ class GoBoard:
             self.block_nearest_neighbor_list.append(nearest_neighbor_sites_for_current_block)
             self.block_liberty_list.append(len(nearest_neighbor_sites_for_current_block))
 
+            eye_counter_for_current_block = 0
+            for site in nearest_neighbor_sites_for_current_block:
+                if self._is_eye(site):
+                    eye_counter_for_current_block += 1
+
+            self.block_eye_list.append(eye_counter_for_current_block)
+
 
     def pass_move(self) -> None:
-        "to switch color"
-        self.last_move_color = self.last_move_color.alternate()
+        "switch color"
+        print(f"MOVE{self.current_move_color} PASSED!!!")
+        self.current_move_color = self.current_move_color.alternate()
 
 
-    def place_stone_at(self, pos: tuple[int,int], show_board: bool=True) -> bool:
-        if pos in self.full_stone_to_color_map:
-            return False # already occupied
+    def _is_capture_move(self, test_board: Self) -> bool:
+        "input an updated board to check if capture occurs for the test move by checking the liberty condition, without mutating the test_board-board"
+        test_move_color = self.current_move_color
+        for(block_ind, stone_block) in enumerate(test_board.block_list):
+            block_liberty = test_board.block_liberty_list[block_ind]
+            if stone_block.block_color != test_move_color and block_liberty == 0:
+                return True
+        return False
 
-        stone_color = self.last_move_color.alternate()
-        self.last_move_color = stone_color
-        stone = Stone(stone_color, pos)
-        
-        # Check if any blocks have 0 liberties after the trial move
+
+    def _is_suicide_move(self, test_board: Self) -> bool:
+        "input an updated board to check if suicide occurs for the test move by checking the liberty condition, without mutating the test_board-board"
+        test_move_color = self.current_move_color
+        for(block_ind, stone_block) in enumerate(test_board.block_list):
+            block_liberty = test_board.block_liberty_list[block_ind]
+            if stone_block.block_color == test_move_color and block_liberty == 0:
+                return True
+        return False
+
+
+    def try_place_stone_at(self, pos: tuple[int,int], show_board: bool=True) -> bool:
         test_board = deepcopy(self)
-        test_board.update_block_list(stone)
+        test_move_color = self.current_move_color # double alternating = unchanged
+        test_board.current_move_color = test_move_color.alternate()
+        test_board.update_block_list(Stone(test_move_color, pos))
         test_board.update_full_stone_to_color_map()
-        test_board.update_nearest_neighbor_list_and_liberty_list()
-        test_board.update_block_eye_list()
+        test_board.update_nearest_neighbor_list_and_liberty_list_and_eye_list()
 
 
-        zero_liberty_blocks: list[StoneBlock] = []
-        zero_liberty_blocks_of_current_color: list[StoneBlock] = []
-        for (block_ind, liberty) in enumerate(test_board.block_liberty_list):
-            if liberty == 0:
-                current_block = test_board.block_list[block_ind]
-                if current_block.block_color != self.last_move_color:
-                    zero_liberty_blocks.append(current_block)
-                else: # current_block.block_color == self.last_move_color:
-                    zero_liberty_blocks.append(current_block)
-                    zero_liberty_blocks_of_current_color.append(current_block)
+        _is_capture = self._is_capture_move(test_board)
+        _is_suicide = self._is_suicide_move(test_board)
+        _is_normal_move = True if (not _is_capture) and (not _is_suicide) else False
 
 
-        _is_move_legal = False
-        _is_simple_capture = False
-        _is_suicide_capture = False
-        assert set(zero_liberty_blocks_of_current_color).issubset(set(zero_liberty_blocks))
-        if len(zero_liberty_blocks) == len(zero_liberty_blocks_of_current_color) == 0: 
-            # normal move
-            _is_move_legal = True
-            _is_simple_capture = False
-            _is_suicide_capture = False
-        elif len(zero_liberty_blocks) != 0 and len(zero_liberty_blocks_of_current_color) == 0: 
-            # simple capture
-            _is_move_legal = True
-            _is_simple_capture = True
-            _is_suicide_capture = False
-        else: # len(zero_liberty_blocks) != 0 and len(zero_liberty_blocks_of_current_color) != 0:
-            if len(zero_liberty_blocks) == len(zero_liberty_blocks_of_current_color):
-                # pure suicide, namely is a forbidden point
-                _is_move_legal = False
-                _is_simple_capture = False
-                _is_suicide_capture = False
-            else: # len(zero_liberty_blocks) > len(zero_liberty_blocks_of_current_color):
-                # suicide capture
-                _is_move_legal = True
-                _is_simple_capture = False
-                _is_suicide_capture = True
-
-        match (_is_move_legal, _is_simple_capture, _is_suicide_capture):
-            case (True, False, False):
+        match (_is_normal_move, _is_capture, _is_suicide):
+            case (True, False, False): # normal move: legal
                 pass
-            case (True, True, False):
-                for block in zero_liberty_blocks:
-                    test_board.block_list.remove(block)
-                    test_board.update_full_stone_to_color_map()
-                    test_board.update_nearest_neighbor_list_and_liberty_list()
-                    test_board.update_block_eye_list()
-            case (True, False, True):
-                blocks_to_remove = list(set(zero_liberty_blocks).difference(set(zero_liberty_blocks_of_current_color)))
-                for block in blocks_to_remove:
-                    test_board.block_list.remove(block)
-                    test_board.update_full_stone_to_color_map()
-                    test_board.update_nearest_neighbor_list_and_liberty_list()
-                    test_board.update_block_eye_list()
-            case _:
-                self.last_move_color = self.last_move_color.alternate()
-                return False
+            case (False, True, _): # simply capture or capture with suicide: legal
+                block_ind_list_to_be_captured: list[int] = []
+                for (block_ind, stone_block) in enumerate(test_board.block_list):
+                    block_liberty = test_board.block_liberty_list[block_ind]
+                    if block_liberty == 0 and stone_block.block_color != test_move_color:
+                        block_ind_list_to_be_captured.append(block_ind)
+                for block_ind in reversed(block_ind_list_to_be_captured):
+                    test_board.block_list.pop(block_ind)
 
-        # if move is legal
+                # update `test_board`
+                test_board.update_full_stone_to_color_map()
+                test_board.update_nearest_neighbor_list_and_liberty_list_and_eye_list()
+            case (False, False, True): # pure suidice: illegal!
+                return False
+            case _: pass
+        
+        # if move is legal, update self-board with `test_board`
+        self.current_move_color = test_board.current_move_color
         self.block_list = test_board.block_list
         self.full_stone_to_color_map = test_board.full_stone_to_color_map
         self.block_nearest_neighbor_list = test_board.block_nearest_neighbor_list
         self.block_liberty_list = test_board.block_liberty_list
+        self.block_eye_list = test_board.block_eye_list
+        # self = deepcopy(test_board)
+
         if show_board:
-            print(f"Place stone{stone_color} at coordinate = {pos}:")
-            print(self) 
+            info_str = f"gen move at:{test_move_color} {pos}\nnext turn: {test_move_color.alternate()}\n"
+            
+            info_str += f"\033[1mBoard Size: {self.size}\033[0m\n"
+            print(info_str)
+            print(self)
+            
 
         return True
 
 
-    def place_stone_with_color_at(self, pos: tuple[int,int], color: Color) -> bool:
+    def try_place_stone_with_color_at(self, pos: tuple[int,int], color: Color, show_board: bool=True) -> bool:
         "ignore the alternating-color rule and place stone with specific color on board"
-        self.last_move_color = color.alternate() # change last move color to ensure the current move to have a correct color
-        _is_move_legal = self.place_stone_at(pos)
+        self.current_move_color = color # change `current_move_color`
+        _is_move_legal = self.try_place_stone_at(pos, show_board=show_board)
         return _is_move_legal
 
 
-    def get_next_nearest_neighbor_sites(self, pos: tuple[int, int]) -> list[tuple[int,int]]:
-        "useful to determine if the site is the true eye"
-        (x,y) = pos
-        match self.get_board_position(pos):
-            case BoardPosition.Bulk: return [(x+1,y+1), (x-1,y+1), (x-1,y-1), (x+1,y+1)]
-            case BoardPosition.Left: return [(x+1,y+1), (x+1,y-1)]
-            case BoardPosition.Right: return [(x-1,y+1), (x-1,y-1)]
-            case BoardPosition.Bottom: return [(x+1,y+1), (x-1,y+1)]
-            case BoardPosition.Top: return [(x+1,y-1), (x-1,y-1)]
-            case BoardPosition.BottomLeftCorner: return [(x+1,y+1)]
-            case BoardPosition.BottomRightCorner: return [(x-1,y+1)]
-            case BoardPosition.TopLeftCorner: return [(x+1,y-1)]
-            case BoardPosition.TopRightCorner: return [(x-1,y-1)]
+
+    def find_nearby_block_index_list_of_specific_color(self, site: tuple[int, int], color: Color) -> list[int]:
+        "find nearest blocks for arbitrary position on board (it can be already occupied)"
+        nearest_nearby_block_ind_list: list[int] = []
+        for (block_ind, stone_block) in enumerate(self.block_list):
+            if stone_block.block_color == color:
+                for stone in stone_block.stone_list:
+                    if abs(np.linalg.norm(np.array(site) - np.array(stone.pos))-1.0) < 1.0E-8:
+                        nearest_nearby_block_ind_list.append(block_ind)
+                        break
+
+        return nearest_nearby_block_ind_list
 
 
-    def update_block_eye_list(self) -> None:
-        block_eye_list = [0 for _ in self.block_list]
-        for (block_ind, block_nearest_neighbor_sites) in enumerate(self.block_nearest_neighbor_list):
-            block_color = self.block_list[block_ind].block_color
-            for site in block_nearest_neighbor_sites:
-                counter = 0
-                nearest_neighbor_sites = self.get_nearest_neighbor_sites(site)
-                next_nearest_neighbor_sites = self.get_next_nearest_neighbor_sites(site)
-                nearby_sites = list(set(nearest_neighbor_sites).union(set(next_nearest_neighbor_sites)))
-                for test_site in nearby_sites:
-                    if test_site in self.full_stone_to_color_map:
-                        if self.full_stone_to_color_map[test_site] == block_color:
-                            counter += 1
+    def _is_illegal_move_for_opponent(self, pos: tuple[int,int]) -> bool:
+        """```
+        ### Auxiliary Function to Determine Whether the Empty Site is Illegal for the Opponent
+        > If is true, then self-occupy of that site should be cautious --- it can be occupation of the crucial true eye of the block
+        ```"""
+        assert pos not in self.full_stone_to_color_map
+
+        # Swich the color for a test move to see if the empty site `pos` is an illegal point
+        opponent_color = copy(self.current_move_color.alternate())
+        test_board = deepcopy(self)
+        if test_board.try_place_stone_with_color_at(pos, opponent_color, show_board=False):
+            # if the trial move is allowed for the opponent
+            return False
+        else: 
+            return True
+
+
+
+    def ignore_site_to_search(self, pos: tuple[int,int]) -> bool:
+        test_board = deepcopy(self)
+        if not test_board.try_place_stone_at(pos, show_board=False):
+            # if is illegal for current player, ignore the site
+            return True
+        else:
+            # if is OK for current player        
+            test_board = deepcopy(self)
+            _is_site_illegal_for_opponent = test_board._is_illegal_move_for_opponent(pos)
+            if _is_site_illegal_for_opponent:
+                current_move_color = self.current_move_color
                 
-                # true_eye_criteria = 
-                # match self.get_board_position(site):
-                #     case BoardPosition.Bulk: 
+                # below for test only
+                nearby_block_ind_list_before_test_move = self.find_nearby_block_index_list_of_specific_color(pos, current_move_color)
+                block_liberty_list_before_test_move = [self.block_liberty_list[block_ind] for block_ind in nearby_block_ind_list_before_test_move]
+                block_eye_list_before_test_move = [self.block_eye_list[block_ind] for block_ind in nearby_block_ind_list_before_test_move]
 
-    def _is_eye(self, pos: tuple[int,int]) -> bool:
-        match self.get_board_position(pos):
-            case 1: return True
-            case _: return True
+                # print(f"{current_move_color} found site {pos} illegal for{current_move_color.alternate()}")
+                # block_list_before_test_move = [self.block_list[block_ind] for block_ind in nearby_block_ind_list_before_test_move]
+                # for test only
+                # print(f"\t{pos} nearby block list before trial move: {block_list_before_test_move}")
+                # print(f"\t{pos} nearby block liberty list before trial move: {block_liberty_list_before_test_move}")
+                # print(f"\t{pos} nearby block # of eyes before trial move: {block_eye_list_before_test_move}")
 
+                suicide_indicator_list = [block_eye_list_before_test_move[i] == block_liberty_list_before_test_move[i] == 2 for (i,_) in enumerate(nearby_block_ind_list_before_test_move)]
+                if any(suicide_indicator_list):
+                    # furthere trial move to avoid edge situation
+                    test_board.try_place_stone_at(pos,show_board=False)
+                    for block_liberty in test_board.block_liberty_list:
+                        if block_liberty < 2:
+                            print(f"{current_move_color} found site {pos} is suicide so ignore it!")
+                            return True # ignore suicide 
+                        else: continue
+
+            return False
+
+
+    def generate_allowed_site_list(self, full_site_list: list[tuple[int,int]]) -> list[tuple[int,int]]:
+        allowed_site_list: list[tuple[int,int]] = []
+        empty_site_list = list(set(full_site_list).difference(set(self.full_stone_to_color_map.keys())))
+        for site in empty_site_list:
+            if not self.ignore_site_to_search(site):
+                allowed_site_list.append(site)
+        return allowed_site_list
+
+
+    def score_board(self) -> tuple[tuple[Color,int], tuple[Color,int]]:
+        # count Black
+        black_score = 0
+        white_score = 0
+        for stone_block in self.block_list:
+            match stone_block.block_color:
+                case Color.Black: black_score += len(stone_block.stone_list)
+                case Color.White: white_score += len(stone_block.stone_list)
         
+        return ((Color.Black, black_score), (Color.White, white_score))
 
 
-def get_distance(pos1: tuple[int,int], pos2: tuple[int,int]) -> np.floating:
+
+def get_distance_of_two_sites(pos1: tuple[int,int], pos2: tuple[int,int]) -> np.floating:
     pos1_vec = np.array(pos1)
     pos2_vec = np.array(pos2)
-    return np.linalg.norm(pos1_vec-pos2_vec)    
+    return np.linalg.norm(pos1_vec-pos2_vec)
 
 
-
+def get_minimal_distance_of_site_and_block(pos: tuple[int, int], stone_block:StoneBlock) -> np.floating:
+    pos_vec = np.array(pos)
+    stone_vec_list = [np.array(stone.pos) for stone in stone_block.stone_list]
+    distance_list = [np.linalg.norm(pos_vec-site_vec) for site_vec in stone_vec_list]
+    return np.min(distance_list)
             
+
