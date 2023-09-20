@@ -19,7 +19,7 @@ def goboard_class_construction_test():
     print(A)
     print(A.block_list)
     print(A.full_stone_to_color_map)
-    print(A.block_nearest_neighbor_list)
+    # print(A.block_nearest_neighbor_list)
     print(A.block_liberty_list)
     
 
@@ -52,8 +52,8 @@ if __name__ == "__main__":
     # place_stone_test()
     # suicide_forbidden_test()
 
-    A = GoBoard((3,3))
-    gen_move_random(A)
+    A = GoBoard((19,19))
+    gen_game_random(A)
 
     
 

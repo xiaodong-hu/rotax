@@ -1,4 +1,5 @@
 import enum
+from typing import Union
 from .stone import *
 import numpy as np
 from copy import copy, deepcopy
@@ -49,10 +50,12 @@ class GoBoard:
     ```"""
     size: tuple[int, int]
     komi: float
+    consecutive_passes: int
     current_move_color: Color # alternating color for each move
     block_list: list[StoneBlock]
     full_stone_to_color_map: dict[tuple[int, int], Color]
-    block_nearest_neighbor_list: list[list[tuple[int, int]]]
+    # block_nearest_neighbor_list: list[list[tuple[int, int]]]
+    site_to_nearest_nearby_block_index_map: dict[tuple[int, int], int]
     block_liberty_list: list[int]
     block_eye_list: list[int]
 
@@ -60,15 +63,18 @@ class GoBoard:
     def __init__(self, size: tuple[int, int] = (19,19), black_first: bool = True) -> None:
         self.size = size
         self.komi = 7.5
+        self.consecutive_passes = 0
         self.current_move_color = Color.Black if black_first else Color.White
         self.block_list: list[StoneBlock] = []
         self.full_stone_to_color_map: dict[tuple[int, int], Color] = {}
-        self.block_nearest_neighbor_list: list[list[tuple[int, int]]] = []
+        # self.block_nearest_neighbor_list: list[list[tuple[int, int]]] = []
+        self.site_to_nearest_nearby_block_index_map: dict[tuple[int, int], int] = {}
         self.block_liberty_list: list[int] = []
         self.block_eye_list: list[int] = []
         
+
     def __repr__(self) -> str:
-        board_str = ""
+        board_str = f"current board: (board size: {self.size})\n"
         for i in range(self.size[0],-1,-1):
             for j in range(0,self.size[1]+1):
                 pos = (j,i)
@@ -94,7 +100,7 @@ class GoBoard:
         """```
         ### Update the StoneBlock Information with Consideration of Stone-Block and Block-Block Merges
         ```"""
-        assert new_stone.pos not in self.full_stone_to_color_map # exclude illegal move
+        # assert new_stone.pos not in self.full_stone_to_color_map # exclude illegal move
 
         matching_block_indices: list[int] = []
         
@@ -170,6 +176,29 @@ class GoBoard:
             case BoardPosition.TopRightCorner: return [(x-1,y), (x,y-1)]
 
 
+
+    def find_nearby_block_index_list_of_specific_color(self, site: tuple[int, int], color: Color) -> list[int]:
+        "find nearest blocks for arbitrary position on board (it can be already occupied)"
+        nearest_nearby_block_ind_list: list[int] = []
+        for (block_ind, stone_block) in enumerate(self.block_list):
+            if stone_block.block_color == color:
+                for stone in stone_block.stone_list:
+                    if abs(np.linalg.norm(np.array(site,dtype=np.int32) - np.array(stone.pos,dtype=np.int32))-1.0) < 1.0E-8:
+                        nearest_nearby_block_ind_list.append(block_ind)
+                        break
+
+        return nearest_nearby_block_ind_list
+
+
+    # def update_site_to_nearest_nearby_block_index_map(self) -> None:
+    #     self.
+    #     full_site_list = [(i,j) for i in range(0, self.size[0]) for j in range(0, self.size[1])]
+    #     empty_site_set = set(full_site_list).difference(set(self.full_stone_to_color_map.keys()))
+    #     for site in empty_site_set:
+    #         nearest_nearby_sites = self.get_nearest_nearby_sites_for_position(site)
+
+
+
     def _is_eye(self, pos: tuple[int,int]) -> bool:
         "here eye can be fake: a site is defined as eye if the left/right/up/down are of the same color"
         nearest_neighbor_sites = self.get_nearest_nearby_sites_for_position(pos)
@@ -190,10 +219,10 @@ class GoBoard:
 
     def update_nearest_neighbor_list_and_liberty_list_and_eye_list(self) -> None:
         """```
-        ### Use Auxiliary `block_nearest_neighbor_list` to Count Block Liberties
+        ### Use auxiliary `nearest_neighbor_sites_for_current_block` to count block liberties
         > The boundary condition is taken into account
         ```"""
-        self.block_nearest_neighbor_list: list[list[tuple[int,int]]] = [] # reinitlize the auxiliary list
+        # self.block_nearest_neighbor_list: list[list[tuple[int,int]]] = [] # reinitlize the auxiliary list
         self.block_liberty_list: list[int] = [] # reinitialize the liberty list
         self.block_eye_list: list[int] = []
         for stone_block in self.block_list:
@@ -210,7 +239,7 @@ class GoBoard:
                 if pos in nearest_neighbor_sites_for_current_block:
                     nearest_neighbor_sites_for_current_block.remove(pos)
     
-            self.block_nearest_neighbor_list.append(nearest_neighbor_sites_for_current_block)
+            # self.block_nearest_neighbor_list.append(nearest_neighbor_sites_for_current_block)
             self.block_liberty_list.append(len(nearest_neighbor_sites_for_current_block))
 
             eye_counter_for_current_block = 0
@@ -225,6 +254,8 @@ class GoBoard:
         "switch color"
         print(f"MOVE{self.current_move_color} PASSED!!!")
         self.current_move_color = self.current_move_color.alternate()
+        print(self)
+        
 
 
     def _is_capture_move(self, test_board: Self) -> bool:
@@ -255,12 +286,9 @@ class GoBoard:
         test_board.update_full_stone_to_color_map()
         test_board.update_nearest_neighbor_list_and_liberty_list_and_eye_list()
 
-
         _is_capture = self._is_capture_move(test_board)
         _is_suicide = self._is_suicide_move(test_board)
         _is_normal_move = True if (not _is_capture) and (not _is_suicide) else False
-
-
         match (_is_normal_move, _is_capture, _is_suicide):
             case (True, False, False): # normal move: legal
                 pass
@@ -284,18 +312,14 @@ class GoBoard:
         self.current_move_color = test_board.current_move_color
         self.block_list = test_board.block_list
         self.full_stone_to_color_map = test_board.full_stone_to_color_map
-        self.block_nearest_neighbor_list = test_board.block_nearest_neighbor_list
+        # self.block_nearest_neighbor_list = test_board.block_nearest_neighbor_list
         self.block_liberty_list = test_board.block_liberty_list
         self.block_eye_list = test_board.block_eye_list
         # self = deepcopy(test_board)
 
         if show_board:
-            info_str = f"gen move at:{test_move_color} {pos}\nnext turn: {test_move_color.alternate()}\n"
-            
-            info_str += f"\033[1mBoard Size: {self.size}\033[0m\n"
-            print(info_str)
-            print(self)
-            
+            print(f"\033[1mgen move at:\033[0m{test_move_color} {pos}\n\033[1mnext turn:\033[0m{test_move_color.alternate()}\n")
+            print(self)            
 
         return True
 
@@ -308,17 +332,6 @@ class GoBoard:
 
 
 
-    def find_nearby_block_index_list_of_specific_color(self, site: tuple[int, int], color: Color) -> list[int]:
-        "find nearest blocks for arbitrary position on board (it can be already occupied)"
-        nearest_nearby_block_ind_list: list[int] = []
-        for (block_ind, stone_block) in enumerate(self.block_list):
-            if stone_block.block_color == color:
-                for stone in stone_block.stone_list:
-                    if abs(np.linalg.norm(np.array(site) - np.array(stone.pos))-1.0) < 1.0E-8:
-                        nearest_nearby_block_ind_list.append(block_ind)
-                        break
-
-        return nearest_nearby_block_ind_list
 
 
     def _is_illegal_move_for_opponent(self, pos: tuple[int,int]) -> bool:
@@ -338,12 +351,15 @@ class GoBoard:
             return True
 
 
-
-    def ignore_site_to_search(self, pos: tuple[int,int]) -> bool:
+    def update_ignored_site_list(self, ignored_site_list: set[tuple[int,int]], pos: tuple[int,int]) -> None:
         test_board = deepcopy(self)
+        if pos in ignored_site_list:
+            return None
+
         if not test_board.try_place_stone_at(pos, show_board=False):
             # if is illegal for current player, ignore the site
-            return True
+            if pos not in ignored_site_list:
+                ignored_site_list.add(pos)
         else:
             # if is OK for current player        
             test_board = deepcopy(self)
@@ -351,38 +367,70 @@ class GoBoard:
             if _is_site_illegal_for_opponent:
                 current_move_color = self.current_move_color
                 
+                # before the test move
+                nearby_block_ind_list = self.find_nearby_block_index_list_of_specific_color(pos, current_move_color)
+                # block_liberty_list = [self.block_liberty_list[block_ind] for block_ind in nearby_block_ind_list]
+                block_eye_list = [self.block_eye_list[block_ind] for block_ind in nearby_block_ind_list]
+
                 # below for test only
-                nearby_block_ind_list_before_test_move = self.find_nearby_block_index_list_of_specific_color(pos, current_move_color)
-                block_liberty_list_before_test_move = [self.block_liberty_list[block_ind] for block_ind in nearby_block_ind_list_before_test_move]
-                block_eye_list_before_test_move = [self.block_eye_list[block_ind] for block_ind in nearby_block_ind_list_before_test_move]
-
                 # print(f"{current_move_color} found site {pos} illegal for{current_move_color.alternate()}")
-                # block_list_before_test_move = [self.block_list[block_ind] for block_ind in nearby_block_ind_list_before_test_move]
+                # block_list = [self.block_list[block_ind] for block_ind in nearby_block_ind_list]
                 # for test only
-                # print(f"\t{pos} nearby block list before trial move: {block_list_before_test_move}")
-                # print(f"\t{pos} nearby block liberty list before trial move: {block_liberty_list_before_test_move}")
-                # print(f"\t{pos} nearby block # of eyes before trial move: {block_eye_list_before_test_move}")
+                # print(f"\t{pos} nearby block list before trial move: {block_list}")
+                # print(f"\t{pos} nearby block liberty list before trial move: {block_liberty_list}")
+                # print(f"\t{pos} nearby block # of eyes before trial move: {block_eye_list}")
 
-                suicide_indicator_list = [block_eye_list_before_test_move[i] == block_liberty_list_before_test_move[i] == 2 for (i,_) in enumerate(nearby_block_ind_list_before_test_move)]
+                suicide_indicator_list = [block_eye_list[i] == 2 for (i,_) in enumerate(nearby_block_ind_list)]
                 if any(suicide_indicator_list):
-                    # furthere trial move to avoid edge situation
-                    test_board.try_place_stone_at(pos,show_board=False)
-                    for block_liberty in test_board.block_liberty_list:
-                        if block_liberty < 2:
-                            print(f"{current_move_color} found site {pos} is suicide so ignore it!")
-                            return True # ignore suicide 
-                        else: continue
+                    # for (i, _) in enumerate(nearby_block_ind_list):
+                    # test move
+                    test_board.try_place_stone_at(pos, show_board=False)
+                    
+                    merged_block_ind = test_board.find_nearby_block_index_list_of_specific_color(pos, current_move_color)[0]
+                    merged_block_liberty = test_board.block_liberty_list[merged_block_ind]
+                    merged_block_eye = test_board.block_eye_list[merged_block_ind]
+                    
+                    if merged_block_liberty < 2 or merged_block_eye < 2:
+                        # ignore suicide 
+                        print(f"{current_move_color} found site {pos} is suicide so ignore it! (liberty and eye after merge: ({merged_block_liberty}, {merged_block_eye}))")
+                        
+                        if pos not in ignored_site_list:
+                            ignored_site_list.add(pos)
+                    
+    # def update_ignored_site_list(self, ignored_site_list: set[tuple[int, int]], pos: tuple[int, int]) -> None:
+    #     if pos in ignored_site_list:
+    #         return
 
-            return False
+    #     test_board = deepcopy(self)
+    #     if not test_board.try_place_stone_at(pos, show_board=False):
+    #         ignored_site_list.add(pos)
+    #     else:
+    #         current_move_color = test_board.current_move_color
+
+    #         nearby_block_ind_list = test_board.find_nearby_block_index_list_of_specific_color(pos, current_move_color)
+    #         block_eye_list = [test_board.block_eye_list[block_ind] for block_ind in nearby_block_ind_list]
+    #         suicide_indicator_list = [block_eye == 2 for block_eye in block_eye_list]
+
+    #         if any(suicide_indicator_list):
+    #             test_board.try_place_stone_at(pos, show_board=False)
+    #             merged_block_ind = test_board.find_nearby_block_index_list_of_specific_color(pos, current_move_color)[0]
+    #             merged_block_liberty = test_board.block_liberty_list[merged_block_ind]
+    #             merged_block_eye = test_board.block_eye_list[merged_block_ind]
+
+    #             if merged_block_liberty < 2 or merged_block_eye < 2:
+    #                 ignored_site_list.add(pos)
+    #                 print(f"{current_move_color} found site {pos} is suicide, so it is ignored! (liberty and eye after merge: ({merged_block_liberty}, {merged_block_eye}))")
 
 
     def generate_allowed_site_list(self, full_site_list: list[tuple[int,int]]) -> list[tuple[int,int]]:
-        allowed_site_list: list[tuple[int,int]] = []
-        empty_site_list = list(set(full_site_list).difference(set(self.full_stone_to_color_map.keys())))
-        for site in empty_site_list:
-            if not self.ignore_site_to_search(site):
-                allowed_site_list.append(site)
-        return allowed_site_list
+        empty_site_set = set(full_site_list).difference(set(self.full_stone_to_color_map.keys()))
+
+        ignored_site_list: set[tuple[int,int]] = set([])
+        allowed_search_site_list = list(empty_site_set.difference(set(ignored_site_list)))
+        for site in allowed_search_site_list:
+            self.update_ignored_site_list(ignored_site_list, site)
+            allowed_search_site_list = list(empty_site_set.difference(set(ignored_site_list)))
+        return allowed_search_site_list
 
 
     def score_board(self) -> tuple[tuple[Color,int], tuple[Color,int]]:

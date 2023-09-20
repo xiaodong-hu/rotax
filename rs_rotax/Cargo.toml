@@ -1,0 +1,19 @@
+[package]
+name = "rs_rotax"
+version = "0.1.0"
+edition = "2021"
+author = "xiaodong hu"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# module name to be used in python
+name = "rs_rotax_infrastructure"
+
+# using C std lib
+crate-type = ["cdylib"]
+
+
+[dependencies]
+# pyo3 = {version = "0.19.2", features = ["extension-module"]}
+colored = "2"
