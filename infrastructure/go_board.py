@@ -1,4 +1,3 @@
-import enum
 from typing import Union
 from .stone import *
 import numpy as np
@@ -100,8 +99,6 @@ class GoBoard:
         """```
         ### Update the StoneBlock Information with Consideration of Stone-Block and Block-Block Merges
         ```"""
-        # assert new_stone.pos not in self.full_stone_to_color_map # exclude illegal move
-
         matching_block_indices: list[int] = []
         
         # Find the indices of blocks that can be merged
