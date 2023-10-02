@@ -70,7 +70,7 @@ class GoBoard:
     block_id_to_block_single_eye_site_hashset_hashmap: dict[int, set[tuple[int,int]]]
     full_site_to_nearby_block_id_list_hashmap: dict[tuple[int, int], list[int]]
 
-    allowed_searching_site_hashset: set[tuple[int,int]]
+    # allowed_searching_site_hashset: set[tuple[int,int]]
 
     
     def __init__(self, size: tuple[int, int] = (19,19), black_first: bool = True) -> None:
@@ -84,7 +84,7 @@ class GoBoard:
         self.block_id_to_block_liberty_site_hashset_hashmap: dict[int, set[tuple[int,int]]] = {}
         self.block_id_to_block_single_eye_site_hashset_hashmap: dict[int, set[tuple[int,int]]] = {}
         self.full_site_to_nearby_block_id_list_hashmap: dict[tuple[int, int], list[int]] = {}
-        self.allowed_searching_site_hashset: set[tuple[int,int]] = set([(i,j) for i in range(0, size[0]) for j in range(0, size[1])])
+        # self.allowed_searching_site_hashset: set[tuple[int,int]] = set([(i,j) for i in range(0, size[0]) for j in range(0, size[1])])
     
     def __repr__(self) -> str:
         board_str = f"current board: (board size: {self.size})\n"
@@ -201,6 +201,20 @@ class GoBoard:
         else:
             return False 
 
+    def _single_eye_color(self, pos: tuple[int,int]) -> Union[Color, None]:
+        nearby_sites_for_given_site = self.get_nearby_sites_for_position(pos)
+        nearby_sites_color_hashset: set[Color] = set()
+        for site in nearby_sites_for_given_site:
+            site_color = self.full_stone_pos_to_color_hashmap.get(site)
+            if site_color is None:
+                return None
+            else:
+                nearby_sites_color_hashset.add(site_color)
+        if len(nearby_sites_color_hashset) == 1:
+            return nearby_sites_color_hashset.pop()
+        else:
+            return None 
+
 
     def update_block_id_to_block_liberty_site_and_block_single_eye_site_hashmap(self):
         # first, remove redundant keys
@@ -239,11 +253,11 @@ class GoBoard:
                 self.full_site_to_nearby_block_id_list_hashmap[(i,j)] = list(set(block_id_list))
 
     def _is_capture_move(self, pos: tuple[int,int]) -> bool:
-        nearby_block_ind_list = self.full_site_to_nearby_block_id_list_hashmap.get(pos,[]);
-        if len(nearby_block_ind_list) == 0:
+        nearby_block_id_list = self.full_site_to_nearby_block_id_list_hashmap.get(pos,[]);
+        if len(nearby_block_id_list) == 0:
             return False
-        else: # if `len(nearby_block_ind_list) != 0`
-            for block_id in nearby_block_ind_list:
+        else: # if `len(nearby_block_id_list) != 0`
+            for block_id in nearby_block_id_list:
                 block_color = self.block_id_to_stone_block_hashmap[block_id].block_color
                 block_liberty_site_hashset = self.block_id_to_block_liberty_site_hashset_hashmap[block_id]
                 if block_color == self.current_move_color.alternate() and len(block_liberty_site_hashset) == 1:
@@ -251,19 +265,19 @@ class GoBoard:
             return False
 
     def _is_suicide_move(self, pos: tuple[int,int]) -> bool:
-        nearby_sites_list = self.get_nearby_sites_for_position(pos);
-        for site in nearby_sites_list:
+        nearby_site_list = self.get_nearby_sites_for_position(pos);
+        for site in nearby_site_list:
             if self.full_stone_pos_to_color_hashmap.get(site) == None:
                 # empty site exists even after placing the move, so cannot be suicide
                 return False
         
         # now every nearby site is occupied (of either current move color or opponent color)
-        nearby_block_ind_list = self.full_site_to_nearby_block_id_list_hashmap.get(pos, []);
+        nearby_block_id_list = self.full_site_to_nearby_block_id_list_hashmap.get(pos, []);
         
         block_counter_of_opponent_color = 0;
         block_counter_of_current_move_color = 0;
         block_counter_of_current_move_color_with_one_liberty = 0;
-        for block_id in nearby_block_ind_list:
+        for block_id in nearby_block_id_list:
             block_color = self.block_id_to_stone_block_hashmap[block_id].block_color
             block_liberty_site_hashset = self.block_id_to_block_liberty_site_hashset_hashmap[block_id]
             if block_color == self.current_move_color:
@@ -307,8 +321,7 @@ class GoBoard:
         self.update_block_id_to_block_nearby_empty_site_hashset_hashmap();
         self.update_full_site_to_nearby_block_id_list_hashmap();
         self.update_block_id_to_block_liberty_site_and_block_single_eye_site_hashmap();
-        
-
+    
 
     def place_stone_at(self, pos: tuple[int,int], show_board: bool = False) -> Union[None, tuple[bool, bool]]:
         if pos in self.full_stone_pos_to_color_hashmap:
@@ -344,112 +357,73 @@ class GoBoard:
                     # print(f"\tmove {pos} is detected to be suicide!")
                     # self.pass_move()
                     return (False, True)
-
-    def _is_illegal_move_for_current_player(self, pos: tuple[int,int]) -> bool:
-        """
-        consider a test board to see if is illegal for currnet player to place a move at `pos`
-        > Note: this method will NOT mutate the given board!
-        """
-        test_board = deepcopy(self)
-        match test_board.place_stone_at(pos, show_board=False):
-            case None | (False, True): 
-                return True
-            case _:
-                return False
-
-    def _is_illegal_move_for_opponent(self, pos: tuple[int,int]) -> bool:
-        """
-        consider a test board to see if is illegal for opponent to place a move at `pos`
-        > Note: this method will NOT mutate the given board!
-        """
-        test_board = deepcopy(self)
-        # swich the color for a test move to see if the empty site `pos` is an illegal point
-        test_board.current_move_color = self.current_move_color.alternate()
-        match test_board.place_stone_at(pos, show_board=False):
-            case None | (False, True): 
-                return True
-            case _:
-                return False
-
-    def update_allowed_searching_site_hashset_after_move_is_placed(self, full_site_hashset: set[tuple[int,int]]):
-        self.allowed_searching_site_hashset = full_site_hashset.difference(self.full_stone_pos_to_color_hashmap.keys())
-        allowed_searching_site_hashset_copy = deepcopy(self.allowed_searching_site_hashset)
-
-        for site in allowed_searching_site_hashset_copy:
-            if self._is_single_eye(site):
-                if self._is_illegal_move_for_opponent(site) or self._is_illegal_move_for_current_player(site):
-                    self.allowed_searching_site_hashset.remove(site)
-
-
-
-    # def update_ignored_site_hashset(self, ignored_site_hashset: set[tuple[int,int]], pos: tuple[int,int]) -> None:
-    #     if pos in ignored_site_hashset:
-    #         return None
-    #     test_board = deepcopy(self)
-    #     if not test_board.place_stone_at(pos, show_board=False):
-    #         # if is illegal for current player, ignore the site
-    #         if pos not in ignored_site_hashset:
-    #             ignored_site_hashset.add(pos)
-    #     else:
-    #         # if is OK for current player        
-    #         test_board = deepcopy(self)
-    #         _is_site_illegal_for_opponent = test_board._is_illegal_move_for_opponent(pos)
-    #         if _is_site_illegal_for_opponent:
-    #             current_move_color = self.current_move_color
-                
-    #             # before the test move
-    #             bool_indicator_list_for_containing_suicide_block = [
-    #                 len(block_single_eye_site_hashset) == 2 
-    #                 for block_single_eye_site_hashset in self.block_id_to_block_single_eye_site_hashset_hashmap.items()
-    #             ]
-    #             if any(bool_indicator_list_for_containing_suicide_block):
-    #                 test_board.place_stone_at(pos, show_board=False)
-                    
-    #                 merged_block_ind = test_board.full_site_to_nearby_block_id_list_hashmap[pos][0]
-    #                 merged_block_liberty = len(test_board.block_id_to_block_liberty_site_hashset_hashmap[merged_block_ind])
-    #                 merged_block_single_eye = len(test_board.block_id_to_block_single_eye_site_hashset_hashmap[merged_block_ind])
-                    
-    #                 if merged_block_liberty < 2 or merged_block_single_eye < 2:
-    #                     # ignore suicide 
-    #                     print(f"{current_move_color} found site {pos} is suicide so ignore it! (liberty and eye after merge: ({merged_block_liberty}, {merged_block_single_eye}))")
-    #                     if pos not in ignored_site_hashset:
-    #                         ignored_site_hashset.add(pos)
-
-
-    # def generate_allowed_site_list(self, full_site_hashset: set[tuple[int,int]]) -> set[tuple[int,int]]:
-    #     empty_site_set = full_site_hashset.difference(set(self.full_stone_pos_to_color_hashmap.keys()))
-
-    #     ignored_site_hashset: set[tuple[int,int]] = set([])
-    #     allowed_search_site_hashset = empty_site_set.difference(set(ignored_site_hashset))
-    #     for site in allowed_search_site_hashset:
-    #         self.update_ignored_site_hashset(ignored_site_hashset, site)
-    #         allowed_search_site_hashset = empty_site_set.difference(set(ignored_site_hashset))
-    #     return allowed_search_site_hashset
-
-
+   
+   
     def pass_move(self) -> None:
         "switch color"
         print(f"MOVE{self.current_move_color} PASSED!!!")
         self.current_move_color = self.current_move_color.alternate()
         print(self)
 
-    # def update_allowed_searching_site_hashset(self):
+
+    # def _is_illegal_move_for_current_player(self, pos: tuple[int,int]) -> bool:
+    #     """
+    #     consider a test board to see if is illegal for currnet player to place a move at `pos`
+    #     > Note: this method will NOT mutate the given board!
+    #     """
+    #     test_board = deepcopy(self)
+    #     match test_board.place_stone_at(pos, show_board=False):
+    #         case None | (False, True): 
+    #             return True
+    #         case _:
+    #             return False
+
+    # def _is_illegal_move_for_opponent(self, pos: tuple[int,int]) -> bool:
+    #     """
+    #     consider a test board to see if is illegal for opponent to place a move at `pos`
+    #     > Note: this method will NOT mutate the given board!
+    #     """
+    #     test_board = deepcopy(self)
+    #     # swich the color for a test move to see if the empty site `pos` is an illegal point
+    #     test_board.current_move_color = self.current_move_color.alternate()
+    #     match test_board.place_stone_at(pos, show_board=False):
+    #         case None | (False, True): 
+    #             return True
+    #         case _:
+    #             return False
+
+    # def _is_site_need_to_be_cautious(self, pos:tuple[int,int]) -> bool:
+    #     nearby_site_list = self.get_nearby_sites_for_position(pos)
+    #     adjacent_count = 0
+    #     for site in nearby_site_list:
+    #         if site in self.full_stone_pos_to_color_hashmap:
+    #             adjacent_count += 1
+    #     if adjacent_count == len(nearby_site_list):
+    #         if self._is_single_eye(pos):
+    #             eye_color = self._single_eye_color(pos)
+    #             return True
+    #         else:
+    #             nearby_block_id_list = self.full_site_to_nearby_block_id_list_hashmap.get(pos,[])
+    #             for block_id in nearby_block_id_list:
+    #                 block_liberty = len(self.block_id_to_block_liberty_site_hashset_hashmap[block_id])
+    #                 block_single_eye = len(self.block_id_to_block_single_eye_site_hashset_hashmap[block_id])
+    #                 if block_liberty <= 1 or block_single_eye <= 2:
+    #                     return True
+    #                 else:
+    #                     return False
+    #     return False
 
 
-    def score_board(self) -> tuple[tuple[Color,int], tuple[Color,int]]:
-        # count Black
-        black_score = 0
-        white_score = 0
-        for stone_block in self.block_id_to_stone_block_hashmap.values():
-            match stone_block.block_color:
-                case Color.Black: black_score += len(stone_block.stone_pos_hashset)
-                case Color.White: white_score += len(stone_block.stone_pos_hashset)
-        
-        return ((Color.Black, black_score), (Color.White, white_score))
 
 
-# class AllowedSearchingSpace:
-#     full_searching_site_set: set[tuple[int,int]]
-#     ignored_searching_site_set: set[tuple[int,int]]
-#     searching_site_set: set[tuple[int,int]]
+def score_board(go_board: GoBoard) -> tuple[tuple[Color,int], tuple[Color,int]]:
+    # count Black
+    black_score = 0
+    white_score = 0
+    for stone_block in go_board.block_id_to_stone_block_hashmap.values():
+        match stone_block.block_color:
+            case Color.Black: black_score += len(stone_block.stone_pos_hashset)
+            case Color.White: white_score += len(stone_block.stone_pos_hashset)
+    
+    return ((Color.Black, black_score), (Color.White, white_score))
 
