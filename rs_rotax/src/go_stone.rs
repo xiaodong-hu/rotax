@@ -1,12 +1,12 @@
 use std::fmt;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Color {
     White,
     Black,
 }
 impl Color {
-    fn alternate(&self) -> Self {
+    pub fn alternate(&self) -> Self {
         use Color::*;
         match self {
             White => Black,
@@ -26,7 +26,7 @@ impl fmt::Display for Color {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Stone {
     pub color: Color,
     pub pos: [i32; 2],
