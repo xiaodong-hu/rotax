@@ -1,8 +1,7 @@
-from numpy import block
-from .stone import *
-
 from copy import copy, deepcopy
 from typing import Union
+
+from .stone import *
 
 
 class BoardPosition(Enum):
@@ -145,20 +144,17 @@ class GoBoard:
         if stone.pos not in self.full_stone_pos_to_color_hashmap:
             # start with a new single-stone block
             new_stone_block = StoneBlock(stone.color, set([stone.pos]))
-            block_id_list_to_be_removed: list[int] = []
             for (block_id, block_nearby_sites) in self.block_id_to_block_nearby_empty_site_hashset_hashmap.items():
                 stone_block = self.block_id_to_stone_block_hashmap[block_id]
                 if stone.pos in block_nearby_sites and stone.color == stone_block.block_color:
                     new_stone_block.stone_pos_hashset.update(stone_block.stone_pos_hashset) # block merge
-                    block_id_list_to_be_removed.append(block_id)
-            
+                    del self.block_id_to_stone_block_hashmap[block_id]
+
             new_stone_block_id = hash(str(new_stone_block.stone_pos_hashset))
             new_stone_block.block_id = new_stone_block_id
             self.block_id_to_stone_block_hashmap[new_stone_block_id] = new_stone_block
 
-            # remove merged block keys
-            for block_id in block_id_list_to_be_removed:
-                del self.block_id_to_stone_block_hashmap[block_id]
+    
 
 
     def update_full_stone_pos_to_color_hashmap(self):
@@ -170,9 +166,9 @@ class GoBoard:
 
     def update_block_id_to_block_nearby_empty_site_hashset_hashmap(self):
         # first, remove redundant keys
-        redundant_keys = [k for k in self.block_id_to_block_nearby_empty_site_hashset_hashmap if k not in self.block_id_to_stone_block_hashmap]
-        for k in redundant_keys:
-            del self.block_id_to_block_nearby_empty_site_hashset_hashmap[k]
+        redundant_keys = [block_id for block_id in self.block_id_to_block_nearby_empty_site_hashset_hashmap if block_id not in self.block_id_to_stone_block_hashmap]
+        for block_id in redundant_keys:
+            del self.block_id_to_block_nearby_empty_site_hashset_hashmap[block_id]
 
         # loop through each stone block to identify and add the nearest-nearby empty sites
         for (block_id, stone_block) in self.block_id_to_stone_block_hashmap.items():
@@ -182,59 +178,46 @@ class GoBoard:
                 for site in nearby_sites:
                     # if is not occupied
                     if site not in self.full_stone_pos_to_color_hashmap:
-                        empty_site_hashset.add(site)
+                        empty_site_hashset.add(site) # repeated sites will be omitted
 
             self.block_id_to_block_nearby_empty_site_hashset_hashmap[block_id] = empty_site_hashset
 
 
-    def _is_single_eye(self, pos: tuple[int,int]) -> bool:
+    def _is_single_eye(self, pos: tuple[int,int]) -> tuple[bool, Union[Color, None]]:
         nearby_sites_for_given_site = self.get_nearby_sites_for_position(pos)
         nearby_sites_color_hashset: set[Color] = set()
         for site in nearby_sites_for_given_site:
             site_color = self.full_stone_pos_to_color_hashmap.get(site)
             if site_color is None:
-                return False
+                return (False, None)
             else:
                 nearby_sites_color_hashset.add(site_color)
         if len(nearby_sites_color_hashset) == 1:
-            return True
+            return (True, nearby_sites_color_hashset.pop())
         else:
-            return False 
-
-    def _single_eye_color(self, pos: tuple[int,int]) -> Union[Color, None]:
-        nearby_sites_for_given_site = self.get_nearby_sites_for_position(pos)
-        nearby_sites_color_hashset: set[Color] = set()
-        for site in nearby_sites_for_given_site:
-            site_color = self.full_stone_pos_to_color_hashmap.get(site)
-            if site_color is None:
-                return None
-            else:
-                nearby_sites_color_hashset.add(site_color)
-        if len(nearby_sites_color_hashset) == 1:
-            return nearby_sites_color_hashset.pop()
-        else:
-            return None 
+            return (False, None) 
 
 
     def update_block_id_to_block_liberty_site_and_block_single_eye_site_hashmap(self):
-        # first, remove redundant keys
+        # remove redundant keys
         redundant_keys = [k for k in self.block_id_to_block_liberty_site_hashset_hashmap if k not in self.block_id_to_stone_block_hashmap]
         for k in redundant_keys:
             del self.block_id_to_block_liberty_site_hashset_hashmap[k]
-        # first, remove redundant keys
+        # remove redundant keys
         redundant_keys = [k for k in self.block_id_to_block_single_eye_site_hashset_hashmap if k not in self.block_id_to_stone_block_hashmap]
         for k in redundant_keys:
             del self.block_id_to_block_single_eye_site_hashset_hashmap[k]
 
         for (block_id, empty_site_hashset) in self.block_id_to_block_nearby_empty_site_hashset_hashmap.items():
             block_liberty_site_hashset = set()
+            block_liberty_site_hashset.update(empty_site_hashset)
             block_single_eye_site_hashset = set()
-            # break_flat_for_current_empty_site = False
             for current_empty_site in empty_site_hashset:
-                block_liberty_site_hashset.add(current_empty_site)
-                if self._is_single_eye(current_empty_site):
+                (_is_single_eye, _) = self._is_single_eye(current_empty_site)
+                if _is_single_eye:
                     block_single_eye_site_hashset.add(current_empty_site)
-            
+
+            # if len(block_liberty_site_hashset) > 0:
             self.block_id_to_block_liberty_site_hashset_hashmap[block_id] = block_liberty_site_hashset
             self.block_id_to_block_single_eye_site_hashset_hashmap[block_id] = block_single_eye_site_hashset
 
@@ -300,13 +283,13 @@ class GoBoard:
         return False
 
 
-    def execute_capture_after_move_is_placed(self, pos: tuple[int,int]):
+    def execute_capture_before_move_is_placed(self, pos: tuple[int,int]):
         nearby_block_id_list = self.full_site_to_nearby_block_id_list_hashmap.get(pos, [])
         captured_block_id_list: list[int] = []
         for block_id in nearby_block_id_list:
             block_color = self.block_id_to_stone_block_hashmap[block_id].block_color
             block_liberty_site_hashset = self.block_id_to_block_liberty_site_hashset_hashmap[block_id]
-            if block_color == self.current_move_color.alternate() and len(block_liberty_site_hashset) == 0:
+            if block_color == self.current_move_color.alternate() and len(block_liberty_site_hashset) == 1:
                 captured_block_id_list.append(block_id)
         # print(f"\tblock to be removed: `hash_id` = {captured_block_id_list}")
         for block_id in captured_block_id_list:
@@ -314,14 +297,23 @@ class GoBoard:
 
         self.update_all_go_board_data()
 
+    def clear_redundant_block(self):
+        block_liberty_hashmap = deepcopy(self.block_id_to_stone_block_hashmap)
+        for (block_id, stone_block) in block_liberty_hashmap.items():
+            block_liberty = len(self.block_id_to_block_liberty_site_hashset_hashmap[block_id])
+            if block_liberty == 0:
+                del self.block_id_to_stone_block_hashmap[block_id]
+                del self.block_id_to_block_nearby_empty_site_hashset_hashmap[block_id]
+                del self.block_id_to_block_liberty_site_hashset_hashmap[block_id]
+                del self.block_id_to_block_single_eye_site_hashset_hashmap[block_id]
 
     def update_all_go_board_data(self):
         # the update order here is crucial!!!
         self.update_full_stone_pos_to_color_hashmap();
         self.update_block_id_to_block_nearby_empty_site_hashset_hashmap();
-        self.update_full_site_to_nearby_block_id_list_hashmap();
         self.update_block_id_to_block_liberty_site_and_block_single_eye_site_hashmap();
-    
+        self.clear_redundant_block()
+        self.update_full_site_to_nearby_block_id_list_hashmap();
 
     def place_stone_at(self, pos: tuple[int,int], show_board: bool = False) -> Union[None, tuple[bool, bool]]:
         if pos in self.full_stone_pos_to_color_hashmap:
@@ -344,9 +336,8 @@ class GoBoard:
                     return (False, False)
                 case (True, x):
                     # simple capture, or suicide with capture
+                    self.execute_capture_before_move_is_placed(pos);
                     self.update_block_id_to_stone_block_hashmap(move_stone);
-                    self.update_all_go_board_data();
-                    self.execute_capture_after_move_is_placed(pos);
                     self.update_all_go_board_data();
                     self.current_move_color = self.current_move_color.alternate();
                     if show_board:
@@ -364,66 +355,3 @@ class GoBoard:
         print(f"MOVE{self.current_move_color} PASSED!!!")
         self.current_move_color = self.current_move_color.alternate()
         print(self)
-
-
-    # def _is_illegal_move_for_current_player(self, pos: tuple[int,int]) -> bool:
-    #     """
-    #     consider a test board to see if is illegal for currnet player to place a move at `pos`
-    #     > Note: this method will NOT mutate the given board!
-    #     """
-    #     test_board = deepcopy(self)
-    #     match test_board.place_stone_at(pos, show_board=False):
-    #         case None | (False, True): 
-    #             return True
-    #         case _:
-    #             return False
-
-    # def _is_illegal_move_for_opponent(self, pos: tuple[int,int]) -> bool:
-    #     """
-    #     consider a test board to see if is illegal for opponent to place a move at `pos`
-    #     > Note: this method will NOT mutate the given board!
-    #     """
-    #     test_board = deepcopy(self)
-    #     # swich the color for a test move to see if the empty site `pos` is an illegal point
-    #     test_board.current_move_color = self.current_move_color.alternate()
-    #     match test_board.place_stone_at(pos, show_board=False):
-    #         case None | (False, True): 
-    #             return True
-    #         case _:
-    #             return False
-
-    # def _is_site_need_to_be_cautious(self, pos:tuple[int,int]) -> bool:
-    #     nearby_site_list = self.get_nearby_sites_for_position(pos)
-    #     adjacent_count = 0
-    #     for site in nearby_site_list:
-    #         if site in self.full_stone_pos_to_color_hashmap:
-    #             adjacent_count += 1
-    #     if adjacent_count == len(nearby_site_list):
-    #         if self._is_single_eye(pos):
-    #             eye_color = self._single_eye_color(pos)
-    #             return True
-    #         else:
-    #             nearby_block_id_list = self.full_site_to_nearby_block_id_list_hashmap.get(pos,[])
-    #             for block_id in nearby_block_id_list:
-    #                 block_liberty = len(self.block_id_to_block_liberty_site_hashset_hashmap[block_id])
-    #                 block_single_eye = len(self.block_id_to_block_single_eye_site_hashset_hashmap[block_id])
-    #                 if block_liberty <= 1 or block_single_eye <= 2:
-    #                     return True
-    #                 else:
-    #                     return False
-    #     return False
-
-
-
-
-def score_board(go_board: GoBoard) -> tuple[tuple[Color,int], tuple[Color,int]]:
-    # count Black
-    black_score = 0
-    white_score = 0
-    for stone_block in go_board.block_id_to_stone_block_hashmap.values():
-        match stone_block.block_color:
-            case Color.Black: black_score += len(stone_block.stone_pos_hashset)
-            case Color.White: white_score += len(stone_block.stone_pos_hashset)
-    
-    return ((Color.Black, black_score), (Color.White, white_score))
-
